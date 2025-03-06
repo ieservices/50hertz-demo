@@ -1,9 +1,22 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import random
 import asyncio
 
 app = FastAPI()
+
+# Configure CORS to allow requests from your React app
+origins = [
+    "http://localhost:3000",
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # Allow only this origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Konstanten
 GRID_MAX_POWER_KW = 15      # Netzleistung 15 kW
