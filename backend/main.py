@@ -5,7 +5,7 @@ import random
 import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 app = FastAPI()
 
@@ -55,8 +55,8 @@ simulation_start = time.monotonic()
 class StatusResponse(BaseModel):
     current_price: float  # in ct/€
     charging: str  # "Ein" wenn geladen, sonst "Aus"
-    battery_capacity_kwh: float  # Batteriekapazität in kWh
-    battery_capacity_percent: float  # Batteriekapazität in %
+    battery_capacity_kwh: float = Field(..., gt=0)  # Batteriekapazität in kWh
+    battery_capacity_percent: float = Field(..., gt=0)  # Batteriekapazität in %
 
 
 # Hilfsfunktionen zum Laden/Speichern des Batteriezustands
