@@ -26,7 +26,7 @@ BESS_CAPACITY_KWH = 230  # Gesamte Batteriekapazität in kWh
 BESS_MIN_KWH = BESS_CAPACITY_KWH * 0.10  # Mindestkapazität: 10% (23 kWh)
 
 # Ladeparameter (bei günstigen Preisen)
-CHARGE_CURRENT_A = 25  # Ladestrom
+CHARGE_CURRENT_A = 1500  # Ladestrom (Übertrieben, aber gut für die Demo)
 VOLTAGE = 230  # Betriebsspannung in Volt
 CHARGE_POWER_KW = (CHARGE_CURRENT_A * VOLTAGE) / 1000  # ca. 5,75 kW
 CHARGE_RATE_KWH_PER_SEC = CHARGE_POWER_KW / 3600  # kWh pro Sekunde
