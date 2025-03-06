@@ -1,90 +1,156 @@
+import os
+import csv
+import time
+import random
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import random
-import asyncio
 
 app = FastAPI()
 
-# Configure CORS to allow requests from your React app
-origins = [
-    "http://localhost:3000",
-]
+# CORS-Konfiguration: Erlaubt Anfragen von der React-App (http://localhost:3000)
+origins = ["http://localhost:3000"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Allow only this origin
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Konstanten
-GRID_MAX_POWER_KW = 15      # Netzleistung 15 kW
-GRID_MAX_CURRENT_A = 30     # Netzstrom 30 A
-BESS_CAPACITY_KWH = 230     # Batterie-Kapazität
+GRID_MAX_POWER_KW = 15  # Netzleistung in kW
+GRID_MAX_CURRENT_A = 30  # Netzstrom in A
+BESS_CAPACITY_KWH = 230  # Gesamte Batteriekapazität in kWh
 BESS_MIN_KWH = BESS_CAPACITY_KWH * 0.10  # Mindestkapazität: 10% (23 kWh)
 
-# Im ursprünglichen Text stand "kann mit 10A geladen werden", aber bei Preis <25 ct
-# wird die Batterie mit maximal 25 A geladen. Wir simulieren hier den Fall mit 25 A.
-CHARGE_CURRENT_A = 25       # Ladestrom bei günstigen Preisen
-VOLTAGE = 230               # angenommene Betriebsspannung in Volt
-# Berechnung der Leistung (P = U * I) in kW:
+# Ladeparameter (bei günstigen Preisen)
+CHARGE_CURRENT_A = 25  # Ladestrom
+VOLTAGE = 230  # Betriebsspannung in Volt
 CHARGE_POWER_KW = (CHARGE_CURRENT_A * VOLTAGE) / 1000  # ca. 5,75 kW
-# Umrechnung auf kWh pro Sekunde:
-CHARGE_RATE_KWH_PER_SEC = CHARGE_POWER_KW / 3600
+CHARGE_RATE_KWH_PER_SEC = CHARGE_POWER_KW / 3600  # kWh pro Sekunde
 
-# Wir nehmen an, dass auch beim Entladen ein ähnlicher Leistungswert verwendet wird.
+# Entladeparameter (bei teurem Strom)
 DISCHARGE_RATE_KWH_PER_SEC = CHARGE_RATE_KWH_PER_SEC
 
-# Globaler Zustand (für diese Simulation)
-current_price = random.uniform(15, 40)  # Aktueller Strompreis in ct/€
-battery_capacity = BESS_CAPACITY_KWH * 0.5  # Starte z. B. bei 50% Kapazität
-charging = False  # Zeigt an, ob die Batterie gerade geladen wird
+# Betriebsverbrauch:
+# Täglicher Verbrauch zwischen 800 und 1.400 kWh
+daily_consumption_kwh = random.uniform(800, 1400)
+facility_consumption_rate = daily_consumption_kwh / 86400  # kWh pro Sekunde
 
-# Pydantic Modell für die Status-Antwort
+# Dateinamen für Persistenz und Logging
+STATE_FILE = "battery_state.txt"
+CSV_FILE = "battery_log.csv"
+
+# Globaler Zustand
+current_price = random.uniform(15, 40)  # Strompreis in ct/€
+battery_capacity = None  # wird im Startup initialisiert
+charging = False  # Gibt an, ob die Batterie gerade geladen wird
+
+simulation_start = time.monotonic()
+
+
+# Pydantic-Modell für die API-Antwort
 class StatusResponse(BaseModel):
-    current_price: float             # in ct/€
-    charging: str                    # "Ein" wenn geladen, sonst "Aus"
-    battery_capacity_kwh: float      # Aktuelle Kapazität in kWh
-    battery_capacity_percent: float  # Aktuelle Kapazität in %
+    current_price: float  # in ct/€
+    charging: str  # "Ein" wenn geladen, sonst "Aus"
+    battery_capacity_kwh: float  # Batteriekapazität in kWh
+    battery_capacity_percent: float  # Batteriekapazität in %
+
+
+# Hilfsfunktionen zum Laden/Speichern des Batteriezustands
+def load_battery_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r") as f:
+            try:
+                return float(f.read().strip())
+            except Exception:
+                return None
+    return None
+
+
+def save_battery_state(state):
+    with open(STATE_FILE, "w") as f:
+        f.write(str(state))
+
+
+# CSV-Logfile initialisieren (mit Header, falls nicht vorhanden)
+if not os.path.exists(CSV_FILE):
+    with open(CSV_FILE, "w", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["timestamp", "current_price", "battery_capacity_kwh", "battery_capacity_percent"])
+
 
 async def update_loop():
     global current_price, battery_capacity, charging
     while True:
-        # Aktualisierung des Strompreises: maximal 40% pro Minute ≙ ca. 0,4/60 pro Sekunde
-        delta_max = current_price * 0.4 / 60
-        price_change = random.uniform(-delta_max, delta_max)
-        new_price = current_price + price_change
-        # Begrenzen des Preises auf den Bereich [15, 40] ct/€
-        current_price = max(15, min(new_price, 40))
+        elapsed = time.monotonic() - simulation_start
 
-        # Logik zum Batteriemanagement:
-        if current_price < 25:
-            # Günstiger Preis: Batterie laden, sofern noch nicht voll
-            if battery_capacity < BESS_CAPACITY_KWH:
-                charging = True
-                battery_capacity = min(battery_capacity + CHARGE_RATE_KWH_PER_SEC, BESS_CAPACITY_KWH)
-            else:
-                charging = False
+        # Generator-Bedingung: Alle 10 Minuten für 3 Minuten wird der Preis auf 20 ct gesetzt
+        if (elapsed % 600) < 180:
+            current_price = 20
         else:
-            # Teurer Preis: Batterie wird genutzt (entladen), aber nicht unter 10% Kapazität
-            if battery_capacity > BESS_MIN_KWH:
-                charging = False  # nicht im Lademodus
-                battery_capacity = max(battery_capacity - DISCHARGE_RATE_KWH_PER_SEC, BESS_MIN_KWH)
-            else:
-                charging = False
+            # Preisaktualisierung: graduelle Änderung, maximal 40% pro Minute (ca. 0.4/60 pro Sekunde)
+            delta_max = current_price * 0.4 / 60
+            price_change = random.uniform(-delta_max, delta_max)
+            new_price = current_price + price_change
+            current_price = max(15, min(new_price, 40))
+
+        # Batteriemanagement:
+        if current_price < 25:
+            # Bei günstigen Preisen wird geladen, gleichzeitig entlädt der Betrieb (Verbrauch)
+            net_change = CHARGE_RATE_KWH_PER_SEC - facility_consumption_rate
+            new_capacity = battery_capacity + net_change
+            new_capacity = min(new_capacity, BESS_CAPACITY_KWH)
+            new_capacity = max(new_capacity, BESS_MIN_KWH)
+            battery_capacity = new_capacity
+            charging = True
+        else:
+            # Bei teurem Strom wird die Batterie entladen, bis mindestens 10% erreicht sind
+            new_capacity = battery_capacity - DISCHARGE_RATE_KWH_PER_SEC
+            battery_capacity = max(new_capacity, BESS_MIN_KWH)
+            charging = False
 
         await asyncio.sleep(1)
 
+
+async def log_status_loop():
+    global current_price, battery_capacity
+    while True:
+        await asyncio.sleep(60)  # Alle 60 Sekunden protokollieren
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        battery_percent = (battery_capacity / BESS_CAPACITY_KWH) * 100
+        # Logge in die CSV-Datei
+        with open(CSV_FILE, "a", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow([timestamp, round(current_price, 2), round(battery_capacity, 2), round(battery_percent, 2)])
+        # Speichere den aktuellen Batteriezustand persistent
+        save_battery_state(battery_capacity)
+
+
 @app.on_event("startup")
 async def startup_event():
+    global battery_capacity
+    # Batteriezustand laden oder bei Nichtvorhandensein initial auf 10% setzen
+    state = load_battery_state()
+    if state is None:
+        battery_capacity = BESS_CAPACITY_KWH * 0.10
+        save_battery_state(battery_capacity)
+    else:
+        battery_capacity = state
+
+    # Starte die Hintergrund-Tasks für Update-Loop und CSV-Logging
     asyncio.create_task(update_loop())
+    asyncio.create_task(log_status_loop())
+
 
 @app.get("/get_status", response_model=StatusResponse)
 async def get_status():
+    battery_percent = (battery_capacity / BESS_CAPACITY_KWH) * 100
     return StatusResponse(
         current_price=round(current_price, 2),
         charging="Ein" if charging else "Aus",
         battery_capacity_kwh=round(battery_capacity, 2),
-        battery_capacity_percent=round((battery_capacity / BESS_CAPACITY_KWH) * 100, 2)
+        battery_capacity_percent=round(battery_percent, 2)
     )
