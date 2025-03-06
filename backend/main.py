@@ -1,6 +1,7 @@
 import os
 import csv
 import time
+import json
 import random
 import asyncio
 from fastapi import FastAPI
@@ -40,7 +41,7 @@ daily_consumption_kwh = random.uniform(800, 1400)
 facility_consumption_rate = daily_consumption_kwh / 86400  # kWh pro Sekunde
 
 # Dateinamen für Persistenz und Logging
-STATE_FILE = "battery_state.txt"
+STATE_FILE = "battery_state.json"
 CSV_FILE = "battery_log.csv"
 
 # Globaler Zustand
@@ -59,27 +60,35 @@ class StatusResponse(BaseModel):
     battery_capacity_percent: float = Field(..., gt=0)  # Batteriekapazität in %
 
 
-# Hilfsfunktionen zum Laden/Speichern des Batteriezustands
+# Hilfsfunktionen zum Laden/Speichern des Batteriezustands im JSON-Format
 def load_battery_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
             try:
-                return float(f.read().strip())
+                data = json.load(f)
+                return data.get("battery_capacity_kwh", None)
             except Exception:
                 return None
     return None
 
 
-def save_battery_state(state):
+def save_battery_state(battery_capacity, current_price, charging, battery_percent):
+    data = {
+        "battery_capacity_kwh": round(battery_capacity, 3),
+        "current_price": round(current_price, 3),
+        "charging": "On" if charging else "Off",
+        "battery_capacity_percent": round(battery_percent, 3)
+    }
     with open(STATE_FILE, "w") as f:
-        f.write(str(state))
+        json.dump(data, f)
 
 
 # CSV-Logfile initialisieren (mit Header, falls nicht vorhanden)
 if not os.path.exists(CSV_FILE):
     with open(CSV_FILE, "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(["timestamp", "current_price", "battery_capacity_kwh", "battery_capacity_percent"])
+        # CSV-Header gemäß gewünschter Reihenfolge
+        writer.writerow(["timestamp", "current_price", "charging", "battery_capacity_kwh", "battery_capacity_percent"])
 
 
 async def update_loop():
@@ -116,29 +125,39 @@ async def update_loop():
 
 
 async def log_status_loop():
-    global current_price, battery_capacity
+    global current_price, battery_capacity, charging
     while True:
         await asyncio.sleep(60)  # Alle 60 Sekunden protokollieren
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         battery_percent = (battery_capacity / BESS_CAPACITY_KWH) * 100
-        # Logge in die CSV-Datei
+        # Logge in die CSV-Datei (Rundung mit 3 Nachkommastellen, Reihenfolge wie gewünscht)
         with open(CSV_FILE, "a", newline="") as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow([timestamp, round(current_price, 2), round(battery_capacity, 2), round(battery_percent, 2)])
-        # Speichere den aktuellen Batteriezustand persistent
-        save_battery_state(battery_capacity)
+            writer.writerow([
+                timestamp,
+                round(current_price, 3),
+                "On" if charging else "Off",
+                round(battery_capacity, 3),
+                round(battery_percent, 3)
+            ])
+        # Aktualisiere den persistenten Batteriezustand in battery_state.txt
+        save_battery_state(battery_capacity, current_price, charging, battery_percent)
 
 
 @app.on_event("startup")
 async def startup_event():
     global battery_capacity
-    # Batteriezustand laden oder bei Nichtvorhandensein initial auf 10% setzen
+    # Batteriezustand laden oder, falls nicht vorhanden, initial auf 10% setzen
     state = load_battery_state()
+
     if state is None:
         battery_capacity = BESS_CAPACITY_KWH * 0.10
-        save_battery_state(battery_capacity)
     else:
         battery_capacity = state
+
+    # Initialer Save beim Start
+    battery_percent = (battery_capacity / BESS_CAPACITY_KWH) * 100
+    save_battery_state(battery_capacity, current_price, charging, battery_percent)
 
     # Starte die Hintergrund-Tasks für Update-Loop und CSV-Logging
     asyncio.create_task(update_loop())
@@ -149,8 +168,8 @@ async def startup_event():
 async def get_status():
     battery_percent = (battery_capacity / BESS_CAPACITY_KWH) * 100
     return StatusResponse(
-        current_price=round(current_price, 2),
+        current_price=round(current_price, 3),
         charging="Ein" if charging else "Aus",
-        battery_capacity_kwh=round(battery_capacity, 2),
-        battery_capacity_percent=round(battery_percent, 2)
+        battery_capacity_kwh=round(battery_capacity, 3),
+        battery_capacity_percent=round(battery_percent, 3)
     )
