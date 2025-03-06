@@ -46,8 +46,8 @@ daily_consumption_kwh = random.uniform(800, 1400)
 facility_consumption_rate = daily_consumption_kwh / 86400  # kWh pro Sekunde
 
 # Dateinamen für Persistenz und Logging
-STATE_FILE = "battery_state.json"
-CSV_FILE = "battery_log.csv"
+STATE_FILE = "data/battery_state.json"
+CSV_FILE = "data/battery_log.csv"
 
 # Globaler Zustand
 current_price = random.uniform(15, 40)  # Strompreis in ct/€

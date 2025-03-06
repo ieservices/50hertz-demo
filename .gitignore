@@ -1,2 +1,4 @@
 .idea
 node_modules
+/backend/data/*.csv
+/backend/data/*.json
