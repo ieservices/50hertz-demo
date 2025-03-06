@@ -8,7 +8,9 @@ function App() {
   // Funktion zum Abruf des EMS-Status von der FastAPI
   const fetchStatus = async () => {
     try {
-      const response = await fetch('http://localhost:8000/get_status');
+      const apiBaseUrl = process.env.REACT_APP_API_URL || "http://localhost:8000";
+      const endpoint = `${apiBaseUrl}/get_status`;
+      const response = await fetch(endpoint);
       if (!response.ok) {
         throw new Error("Netzwerkantwort war nicht ok");
       }
