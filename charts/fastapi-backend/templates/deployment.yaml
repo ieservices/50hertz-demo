@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fastapi-backend.fullname" . }}
+  labels:
+    app: {{ include "fastapi-backend.name" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "fastapi-backend.name" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "fastapi-backend.name" . }}
+    spec:
+      containers:
+      - name: fastapi-backend
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: 80

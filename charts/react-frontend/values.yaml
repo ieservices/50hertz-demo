@@ -1,0 +1,15 @@
+replicaCount: 1
+
+image:
+  repository: 50hertz.azurecr.io/react-app
+  pullPolicy: Always
+  tag: latest
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+
+resources: {}
