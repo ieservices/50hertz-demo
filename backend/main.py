@@ -13,7 +13,7 @@ app = FastAPI()
 # CORS-Konfiguration: Erlaubt Anfragen von der React-App (http://localhost:3000)
 origins = [
     "https://50hertzfastapireactapp.azurewebsites.net",  # React app URL
-    "http://50hertzfastapireactapp.azurewebsites.net",  # React app URL
+    "http://localhost:8000",  # for local development, if needed
     "http://localhost:3000",  # for local development, if needed
 ]
 
