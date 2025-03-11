@@ -1,12 +1,16 @@
-import os
-import csv
-import time
-import json
-import random
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import csv
+import json
+import os
+import random
+import time
+from typing import Optional
+
+from fastapi import Header, HTTPException, Depends, FastAPI
+from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, field_validator
+from pydantic import Field
 
 app = FastAPI()
 
@@ -16,14 +20,6 @@ origins = [
     "http://localhost:8000",  # for local development, if needed
     "http://localhost:3000",  # for local development, if needed
 ]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Konstanten
 GRID_MAX_POWER_KW = 15  # Netzleistung in kW
@@ -56,6 +52,45 @@ charging = False  # Gibt an, ob die Batterie gerade geladen wird
 total_consumption = 0.0  # Kumulative Verbrauch in kWh
 
 simulation_start = time.monotonic()
+
+
+class CORSHeaders(BaseModel):
+    origin: str
+    access_control_request_method: Optional[str] = None
+    access_control_request_headers: Optional[str] = None
+
+    @field_validator("origin")
+    def validate_origin(cls, v):
+        # Beispielvalidierung: Es muss mit "http://" oder "https://" beginnen
+        if not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("Ungültiger Origin-Header")
+        return v
+
+
+# Dependency, die den CORS-Header validiert
+async def validate_cors_headers(
+        origin: str = Header(..., alias="origin"),
+        ac_request_method: Optional[str] = Header(None, alias="access-control-request-method"),
+        ac_request_headers: Optional[str] = Header(None, alias="access-control-request-headers")
+) -> CORSHeaders:
+    try:
+        headers = CORSHeaders(
+            origin=origin,
+            access_control_request_method=ac_request_method,
+            access_control_request_headers=ac_request_headers
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return headers
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # Pydantic-Modell für die API-Antwort
@@ -211,7 +246,9 @@ async def startup_event():
 
 
 @app.get("/get_status", response_model=StatusResponse)
-async def get_status():
+async def get_status(cors: CORSHeaders = Depends(validate_cors_headers)):
+    print({"message": "CORS Header validiert", "origin": cors.origin})
+
     battery_percent = (battery_capacity / BESS_CAPACITY_KWH) * 100
     return StatusResponse(
         current_price=round(current_price, 3),
