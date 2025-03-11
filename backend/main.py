@@ -4,7 +4,7 @@ import time
 import json
 import random
 import asyncio
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -221,3 +221,21 @@ async def get_status():
         facility_consumption_rate=round(facility_consumption_rate, 3),
         total_consumption_kwh=round(total_consumption, 3),
     )
+
+
+@app.websocket("/ws/status")
+async def status_ws(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            battery_percent = (battery_capacity / BESS_CAPACITY_KWH) * 100
+            status = {
+                "current_price": round(current_price, 3),
+                "charging": "Ein" if charging else "Aus",
+                "battery_capacity_kwh": round(battery_capacity, 3),
+                "battery_capacity_percent": round(battery_percent, 3)
+            }
+            await websocket.send_json(status)
+            await asyncio.sleep(1)  # Aktualisierung alle 1 Sekunde
+    except WebSocketDisconnect:
+        print("Client disconnected")
